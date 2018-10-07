@@ -13,8 +13,11 @@ let self = {
                     promises.push(self.fetch(endpoints[i]))
                 }
                 
-                const invert  = p  => new Promise((res, rej) => p.then(rej, res));
-                const firstOf = ps => invert(Promise.all(ps.map(invert)));
+                // This little trick I found on SO:
+                // https://stackoverflow.com/questions/39940152/get-first-fulfilled-promise
+                
+                const invert  = p  => new Promise((res, rej) => p.then(rej, res))
+                const firstOf = ps => invert(Promise.all(ps.map(invert)))
     
                 firstOf(promises)
                 .then(
@@ -31,29 +34,26 @@ let self = {
             }
         })
     },
-    
     fetch: (endpoint) => {
         return new Promise((resolve, reject) => {
-            setTimeout(async()=>{
-                https.get(endpoint,(res) => {
-                    let data = ''
-                    res.on('data', (part) => {
-                        data = data + part
-                    });
-                    res.on('end', function() {
-                        try{
-                            let result = JSON.parse(data)
-                            if(self.isWellKnown(result)) {
-                                return resolve(result)
-                            }
-                        } catch(err) {
-                            return reject(err)
-                        }
-                      });
-                }).on('error', (err) => {
-                    return reject(err)
+            https.get(endpoint,(res) => {
+                let data = ''
+                res.on('data', (part) => {
+                    data = data + part
                 });
-            }, 5000)
+                res.on('end', function() {
+                    try{
+                        let result = JSON.parse(data)
+                        if(self.isWellKnown(result)) {
+                            return resolve(result)
+                        }
+                    } catch(err) {
+                        return reject(err)
+                    }
+                  });
+            }).on('error', (err) => {
+                return reject(err)
+            });
         })
     },
     formatWellKnowns: (server) => {

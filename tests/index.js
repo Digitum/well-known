@@ -7,17 +7,25 @@ let wellKnown = new WellKnown('https://accounts.google.com', {
 })
 
 function test() {
-    setInterval(()=>{
-        wellKnown.get().then(
-            (data) => {
-                console.log('Got valid data')
-            },
-            (err) => {
-                console.warn(err)
-            }
-        )
+
+    // setInterval(()=>{
+    //     wellKnown.get().then(
+    //         (data) => {
+    //             console.log('Got valid data')
+    //         },
+    //         (err) => {
+    //             console.warn(err)
+    //         }
+    //     )
     
-    },500) 
+    // },500) 
+
+    wellKnown.jwks().then(
+        (data)=>{
+            console.log(data)
+        },
+        ()=>{}
+    )
 
     WellKnown.get('accounts.google.com').then(
         (data) => {

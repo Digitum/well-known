@@ -33,6 +33,19 @@ class WellKnown {
     }
 
     jwks(){
+        return new Promise((resolve, reject) => {
+            this.get().then(
+                (data) => {
+                    if(data.jwks_uri) {
+                        return resolve(data.jwks_uri)
+                    }
+                    return reject('JWKS data not found')
+                },
+                (err) => {
+                    return reject()
+                }
+            )
+        })
         return {
             path: async () => {
                 // try {
