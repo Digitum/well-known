@@ -1,6 +1,6 @@
 {
   "name": "@digitum/well-known",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Fetch openid well-known information",
   "main": "index.js",
   "scripts": {
