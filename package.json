@@ -1,0 +1,21 @@
+{
+  "name": "@digitum/well-known",
+  "version": "1.0.0",
+  "description": "Fetch openid well-known information",
+  "main": "index.js",
+  "scripts": {
+    "test": "nodemon tests/index.js --exec babel"
+  },
+  "author": "Odd Holstensson",
+  "license": "ISC",
+  "dependencies": {
+    "ms": "^2.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^1.18.4",
+    "@babel/cli": "^7.1.2",
+    "@babel/core": "^7.1.2",
+    "@babel/node": "^7.0.0",
+    "@babel/preset-env": "^7.1.0"
+  }
+}
