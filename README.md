@@ -7,9 +7,9 @@ Module to fetch .well-known/openid-configuration information from a server. It t
 
 > npm install @digitum/well-known
 
-# Status: Experimental
+# Status: Maintenance
 
-Note that this module is highly experimental and should only be used for development and evaluation.
+The module is maintained for existing consumers. Updates within version 1 keep the current constructor, methods, CommonJS/default imports, and promise rejection values compatible.
 
 # Usage
 
@@ -18,47 +18,47 @@ Note that this module is highly experimental and should only be used for develop
 + `hostBase` \<string\> Server address including protocol.
 + `options` \<object>
   + `cache` \<string\> | \<number\> **Default:** `12h`. Number as milliseconds. Accepts time syntax according to npm packet [ms](https://www.npmjs.com/package/ms).
-  + `useExpiredCacheData` \<boolean\> **Default:** `true`. If set, expired cache will still be used until cache is updated.
+    + `useExpiredCacheData` \<boolean\> **Default:** `false`. If set, expired cache is returned immediately while it is refreshed in the background.
 
 # Examples
 
 ## Then/Catch
 
 ```javascript
-const WellKnown = require('@digitum/well-known')
+const WellKnown = require('@digitum/well-known');
 
-let options = {
-    cache: '12h'.
-    useExpiredCacheData: true.
-}
+const options = {
+    cache: '12h',
+    useExpiredCacheData: true,
+};
 
-wellKnown = new WellKnown('https://myauthserver.url', options)
+const wellKnown = new WellKnown('https://myauthserver.url', options);
 
 wellKnown.get().then(
     (data) => {
-        console.log(data)
+        console.log(data);
     }
 ).catch((err) => {
-    console.warn(err)
-})
+    console.warn(err);
+});
 ```
 
 ## Async/Await
 
 ```javascript
-import WellKnown from '@digitum/well-known'
+import WellKnown from '@digitum/well-known';
 
-wellKnown = new WellKnown('https://myauthserver.url', options)
+const options = {
+    cache: '12h',
+    useExpiredCacheData: true,
+};
 
-let options = {
-    cache: '12h'.
-    useExpiredCacheData: true.
-}
+const wellKnown = new WellKnown('https://myauthserver.url', options);
 
 try {
-    let data = await wellKnown.get()
+    const data = await wellKnown.get();
 } catch (err) {
-    console.warn('Something wrong happened')
+    console.warn('Something wrong happened');
 }
 
 ```
@@ -68,6 +68,14 @@ try {
 > npm run test
 
 # Changelog
+
+Unreleased
+
++ Replaced the vulnerable legacy development toolchain
++ Fixed package entry points and declaration publishing
++ Fixed cache invalidation when changing host
++ Added background refresh for expired cache data
++ Added deterministic tests for the version 1 compatibility surface
 
 1.0.3 (2020-09-06)
 

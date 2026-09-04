@@ -1,6 +1,11 @@
 import ms from 'ms';
 import https from 'https';
 
+export interface WellKnownOptions {
+  cache?: string | number;
+  useExpiredCacheData?: boolean;
+}
+
 class WellKnown {
   private optionsCacheExpires: number = ms('12h');
 
@@ -10,11 +15,11 @@ class WellKnown {
 
   private wellKnownHostBase: string;
 
-  private lastKnownWellKnownData: any = null;
+  private lastKnownWellKnownData: Record<string, any> | null = null;
 
-  private promises: any[] = [];
+  private inFlightRequest: Promise<Record<string, any>> | null = null;
 
-  constructor(hostBase: string | string[], options: any = {}) {
+  constructor(hostBase: string | string[], options: WellKnownOptions = {}) {
 
     /**
      *  TODO: Remove array check and disallow use of Array of strings as hostbase from version 2.0.0
@@ -35,164 +40,138 @@ class WellKnown {
      *  End TODO block
      */
 
-    if (options) {
-      if (options.cache) {
-        if (typeof options.cache === 'string') {
-          this.optionsCacheExpires = Number(ms(options.cache.toString()));
-        } else if (typeof options.cache === 'number') {
-          this.optionsCacheExpires = Number(options.cache);
-        } else {
-          throw "Parameter 'options.cache' in function WellKnown::constructor() must be of type string, number or boolean.";
-        }
+    if (options.cache !== undefined) {
+      if (typeof options.cache === 'string') {
+        this.optionsCacheExpires = ms(options.cache as ms.StringValue);
+      } else if (typeof options.cache === 'number') {
+        this.optionsCacheExpires = options.cache;
+      } else {
+        throw "Parameter 'options.cache' in function WellKnown::constructor() must be of type string, number or boolean.";
       }
 
-      if (options.useExpiredCacheData) {
-        if (typeof options.useExpiredCacheData === 'boolean') {
-          this.optionsUseExpiredCacheData =
-            options.useExpiredCacheData === true;
-        }
+      if (!Number.isFinite(this.optionsCacheExpires) || this.optionsCacheExpires < 0) {
+        throw "Parameter 'options.cache' in function WellKnown::constructor() must be of type string, number or boolean.";
       }
+    }
+
+    if (typeof options.useExpiredCacheData === 'boolean') {
+      this.optionsUseExpiredCacheData = options.useExpiredCacheData;
     }
   }
 
-  public jwks() {
-    return new Promise(async (resolve, reject) => {
-      try {
-        let data = await this.get();
+  public async jwks(): Promise<string> {
+    try {
+      const data = await this.get();
 
-        if (data.jwks_uri) {
-          return resolve(data.jwks_uri);
-        }
-
-        return reject('JWKS data not found');
-      } catch (err) {
-        return reject();
+      if (data.jwks_uri) {
+        return data.jwks_uri;
       }
-    });
+
+      return Promise.reject('JWKS data not found');
+    } catch (err) {
+      return Promise.reject();
+    }
   }
 
   public setHost(hostBase: string): string {
     this.wellKnownHostBase = hostBase;
+    this.lastKnownWellKnownData = null;
+    this.cacheExpires = new Date(0);
+    this.inFlightRequest = null;
 
     return this.wellKnownHostBase;
   }
 
   public get(attribute: string | null = null): Promise<any> {
-    return new Promise(async (resolve, reject) => {
-      // Check if there are wellknown data available in cache
-      this.promises.push({ resolve: resolve, reject: reject, attribute });
+    if (this.lastKnownWellKnownData) {
+      const cachedData = this.selectAttribute(this.lastKnownWellKnownData, attribute);
 
-      if (this.lastKnownWellKnownData) {
-        if (new Date() < this.cacheExpires) {
-          // If cache is still valid
-          return this.resolvePromiseQueue();
-        } else if (this.optionsUseExpiredCacheData) {
-            /**
-            * If use cache even if cache is expired
-            * // Return cached data but continue to get data from server
-            * // Should be safe to resolve twice, even if it is not well documented
-            */
-          return this.resolvePromiseQueue();
-        }
+      if (new Date() < this.cacheExpires) {
+        return Promise.resolve(cachedData);
       }
 
-      if (this.promises.length === 1) {
-        try {
-          let result = await this.fetchWellKnown(this.wellKnownHostBase);
-
-          this.lastKnownWellKnownData = result;
-
-          this.cacheExpires = new Date(Date.now() + this.optionsCacheExpires);
-
-          await this.resolvePromiseQueue();
-        } catch (err) {
-          await this.rejectPromiseQueue(err);
-        }
-
-        return;
+      if (this.optionsUseExpiredCacheData) {
+        void this.refreshCache().catch((err) => {
+          console.warn(
+            'Error when fetch data from service. Option useExpiredCacheData is set to true, which returns old data regardless of error.'
+          );
+          console.warn(err);
+        });
+        return Promise.resolve(cachedData);
       }
-    });
-  }
-
-  private async resolvePromiseQueue(): Promise<boolean> {
-    try {
-      while (this.promises.length) {
-        let promise = this.promises.shift();
-
-        if (promise.attribute) {
-          promise.resolve(this.lastKnownWellKnownData[promise.attribute]);
-        } else {
-          promise.resolve(this.lastKnownWellKnownData);
-        }
-      }
-    } catch (err) {
-      console.warn(err);
-      return false;
     }
-    return true;
+
+    return this.refreshCache()
+      .then((data) => this.selectAttribute(data, attribute))
+      .catch(() => Promise.reject(null));
   }
-  private async rejectPromiseQueue(err: any): Promise<boolean> {
-    try {
-      if (this.optionsUseExpiredCacheData && this.lastKnownWellKnownData) {
-        console.warn(
-          'Error when fetch data from service. Option useExpiredCacheData is set to true, which returns old data regardless of error.'
-        );
-        console.warn(err);
-        return this.resolvePromiseQueue();
-      }
-      while (this.promises.length) {
-        let promise = this.promises.shift();
 
-        promise.reject(null);
-      }
-    } catch (err) {
-      console.warn(err);
-      return false;
-    }
-    return false;
+  private selectAttribute(data: Record<string, any>, attribute: string | null): any {
+    return attribute ? data[attribute] : data;
   }
-  private fetchWellKnown(hostBase: string): any {
-    return new Promise(async (resolve, reject) => {
-      let endpoints = this.formatWellKnowns(hostBase);
 
-      let responseIsDone = false;
-      let responsesLeft = endpoints.length;
-
-      /**
-       * We catch all errors, but show none of them if any of them works
-       * If no endpoint works, we return an array of the responses
-       */
-
-      let errorList: any[] = [];
-      // TODO: replace following code piece when Node has adopted Promise.any() method.
-      endpoints.forEach(async (endpoint: string) => {
-        try {
-          responsesLeft--;
-          let response = await this.fetch(endpoint, hostBase);
-          if (response.issuer) {
-            if (!responseIsDone) {
-              responseIsDone = true;
-              return resolve(response);
-            }
+  private refreshCache(): Promise<Record<string, any>> {
+    if (!this.inFlightRequest) {
+      const hostBase = this.wellKnownHostBase;
+      const request = this.fetchWellKnown(hostBase)
+        .then((data) => {
+          if (this.wellKnownHostBase === hostBase) {
+            this.lastKnownWellKnownData = data;
+            this.cacheExpires = new Date(Date.now() + this.optionsCacheExpires);
           }
-        } catch (err) {
-          errorList.push(err);
-        }
-        if (responsesLeft <= 0) {
-          return reject({
-            error: 'Errors has occured. See list for details.',
-            errorList,
-          });
-        }
-      });
-    });
+          return data;
+        })
+        .finally(() => {
+          if (this.inFlightRequest === request) {
+            this.inFlightRequest = null;
+          }
+        });
+
+      this.inFlightRequest = request;
+    }
+
+    return this.inFlightRequest;
   }
-  private fetch(endpoint: string, hostBase: string): any {
+
+  private async fetchWellKnown(hostBase: string): Promise<Record<string, any>> {
+    const errorList: any[] = [];
+
+    for (const endpoint of this.formatWellKnowns(hostBase)) {
+      try {
+        return await this.fetch(endpoint, hostBase);
+      } catch (err) {
+        errorList.push(err);
+      }
+    }
+
+    throw {
+      error: 'Errors has occured. See list for details.',
+      errorList,
+    };
+  }
+
+  private fetch(endpoint: string, hostBase: string): Promise<Record<string, any>> {
     return new Promise((resolve, reject) => {
-      let request = https
-        .get(endpoint, { timeout: 3000 }, (res) => {
+      const maximumResponseSize = 1024 * 1024;
+      const request = https
+        .get(endpoint, (res) => {
           let data = '';
+          let responseSize = 0;
+
           res.on('data', (part) => {
+            responseSize += Buffer.isBuffer(part)
+              ? part.length
+              : Buffer.byteLength(part);
+
+            if (responseSize > maximumResponseSize) {
+              res.destroy();
+              return reject({
+                error: 'Response from authentication server is too large.',
+                endpoint,
+                hostBase,
+              });
+            }
+
             data = data + part;
           });
           res.on('end', () => {
@@ -227,6 +206,12 @@ class WellKnown {
               });
             }
           });
+          res.on('error', (err) => {
+            return reject({
+              error: 'connection error',
+              reason: err,
+            });
+          });
         })
         .on('error', (err) => {
           return reject({
@@ -249,11 +234,15 @@ class WellKnown {
        * Build different known variants of well-known paths
        * Right now, only one is known (https://<host>/.well-known/openid-configuration)s
        */
-    return [host + '/.well-known/openid-configuration'];
+    return [host.replace(/\/$/, '') + '/.well-known/openid-configuration'];
   }
   private isWellKnown(data: any): boolean {
-    // TODO: Returns true if it is identified as an well-known file
-    return true;
+    return Boolean(
+      data &&
+      typeof data === 'object' &&
+      typeof data.issuer === 'string' &&
+      data.issuer.length > 0
+    );
   }
 }
 
